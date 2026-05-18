@@ -14,6 +14,7 @@ mock! {
             env_vars: &'a [(&'a str, &'a str)],
             skip_attach: bool,
             skip_cmds: bool,
+            replace_current_session: bool,
         ) -> Result<()>;
 
         fn stop(

@@ -1,4 +1,4 @@
-use super::command_line::Cli;
+use super::command_line::{Cli, Commands};
 use clap::Parser;
 use std::sync::Mutex;
 
@@ -12,6 +12,19 @@ fn parse(args: &[&str]) -> Cli {
 fn start_socket_flag_is_parsed() {
     let cli = parse(&["start", "--tmux-socket", "/tmp/test.sock", "--skip-attach"]);
     assert_eq!(cli.tmux_socket.as_deref(), Some("/tmp/test.sock"));
+}
+
+#[test]
+fn replace_current_session_flag_is_parsed() {
+    let cli = parse(&["start", "--replace-current-session", "--skip-attach"]);
+    let Commands::Start {
+        replace_current_session,
+        ..
+    } = &cli.commands
+    else {
+        panic!("expected Start subcommand");
+    };
+    assert!(*replace_current_session);
 }
 
 #[test]

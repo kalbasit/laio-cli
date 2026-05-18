@@ -104,22 +104,31 @@ windows:
     // Set expectations for the `start` method
     mock_multiplexer
         .expect_start()
-        .withf(|session, env_vars, skip_attach, skip_cmds| {
+        .withf(|session, env_vars, skip_attach, skip_cmds, replace_current_session| {
             // Verify session name and env vars contain LAIO_CONFIG and LAIO_VARS
             session.name == "valid"
                 && env_vars.iter().any(|(k, _)| *k == "LAIO_CONFIG")
                 && env_vars.iter().any(|(k, _)| *k == "LAIO_VARS")
                 && !*skip_attach
                 && !*skip_cmds
+                && !*replace_current_session
         })
-        .returning(|_, _, _, _| Ok(()));
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
         Box::new(mock_multiplexer),
     );
 
-    let res = session_manager.start(&Some("valid".to_string()), &None, &[], false, false, false);
+    let res = session_manager.start(
+        &Some("valid".to_string()),
+        &None,
+        &[],
+        false,
+        false,
+        false,
+        false,
+    );
     assert!(res.is_ok());
 
     // Cleanup
@@ -191,8 +200,10 @@ windows:
     // Start should be called with session_name auto-injected
     mock_multiplexer
         .expect_start()
-        .withf(|session, _, _, _| session.name == "nonexistent")
-        .returning(|_, _, _, _| Ok(()));
+        .withf(|session, _, _, _, replace_current_session| {
+            session.name == "nonexistent" && !*replace_current_session
+        })
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
@@ -204,6 +215,7 @@ windows:
         &Some("nonexistent".to_string()),
         &None,
         &[],
+        false,
         false,
         false,
         false,
@@ -241,11 +253,11 @@ fn session_start_generates_default_if_missing() {
     // Start should be called with auto-generated default
     mock_multiplexer
         .expect_start()
-        .withf(|session, _, _, _| {
+        .withf(|session, _, _, _, replace_current_session| {
             // session_name should be auto-injected, overriding the default "changeme"
-            session.name == "myproject"
+            session.name == "myproject" && !*replace_current_session
         })
-        .returning(|_, _, _, _| Ok(()));
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
@@ -257,6 +269,7 @@ fn session_start_generates_default_if_missing() {
         &Some("myproject".to_string()),
         &None,
         &[],
+        false,
         false,
         false,
         false,
@@ -315,8 +328,10 @@ windows:
     // Should use the specific config, NOT the default
     mock_multiplexer
         .expect_start()
-        .withf(|session, _, _, _| session.name == "specific_session")
-        .returning(|_, _, _, _| Ok(()));
+        .withf(|session, _, _, _, replace_current_session| {
+            session.name == "specific_session" && !*replace_current_session
+        })
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
@@ -327,6 +342,7 @@ windows:
         &Some("myconfig".to_string()),
         &None,
         &[],
+        false,
         false,
         false,
         false,
@@ -925,8 +941,10 @@ windows:
     // Start should be called with substituted session name
     mock_multiplexer
         .expect_start()
-        .withf(|session, _, _, _| session.name == "myproject-feature")
-        .returning(|_, _, _, _| Ok(()));
+        .withf(|session, _, _, _, replace_current_session| {
+            session.name == "myproject-feature" && !*replace_current_session
+        })
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
@@ -937,6 +955,7 @@ windows:
         &Some("myproject".to_string()),
         &None,
         &["branch=feature".to_string()],
+        false,
         false,
         false,
         false,
@@ -996,6 +1015,7 @@ windows:
         false,
         false,
         false,
+        false,
     );
 
     assert!(res.is_ok());
@@ -1040,8 +1060,10 @@ windows:
     // Start should be called with fully substituted session name
     mock_multiplexer
         .expect_start()
-        .withf(|session, _, _, _| session.name == "api-prod-us-east")
-        .returning(|_, _, _, _| Ok(()));
+        .withf(|session, _, _, _, replace_current_session| {
+            session.name == "api-prod-us-east" && !*replace_current_session
+        })
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
@@ -1052,6 +1074,7 @@ windows:
         &Some("api".to_string()),
         &None,
         &["env=prod".to_string(), "region=us-east".to_string()],
+        false,
         false,
         false,
         false,
@@ -1099,15 +1122,25 @@ windows:
     // Start should be called with session_name only
     mock_multiplexer
         .expect_start()
-        .withf(|session, _, _, _| session.name == "simple")
-        .returning(|_, _, _, _| Ok(()));
+        .withf(|session, _, _, _, replace_current_session| {
+            session.name == "simple" && !*replace_current_session
+        })
+        .returning(|_, _, _, _, _| Ok(()));
 
     let session_manager = SessionManager::new(
         test_config_dir.to_str().unwrap(),
         Box::new(mock_multiplexer),
     );
 
-    let res = session_manager.start(&Some("simple".to_string()), &None, &[], false, false, false);
+    let res = session_manager.start(
+        &Some("simple".to_string()),
+        &None,
+        &[],
+        false,
+        false,
+        false,
+        false,
+    );
 
     assert!(res.is_ok());
 

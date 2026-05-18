@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[derive(Subcommand, Debug)]
-enum Commands {
+pub(crate) enum Commands {
     /// Start new session
     Start {
         /// Name of the configuration.
@@ -36,6 +36,10 @@ enum Commands {
         /// Skip attaching to session
         #[clap(long)]
         skip_attach: bool,
+
+        /// Replace the current tmux session layout instead of creating or switching sessions.
+        #[clap(long)]
+        replace_current_session: bool,
 
         /// Template variables in key=value format (can be specified multiple times)
         /// Example: --var name=myproject --var path=/home/user/dev
@@ -94,7 +98,7 @@ enum Commands {
 #[command(about = "A simple flexbox-like layout manager for tmux.")]
 pub struct Cli {
     #[command(subcommand)]
-    commands: Commands,
+    pub(crate) commands: Commands,
 
     #[arg[long, default_value = "~/.config/laio", global=true]]
     pub config_dir: String,
@@ -126,6 +130,7 @@ impl Cli {
                 show_picker,
                 skip_cmds,
                 skip_attach,
+                replace_current_session,
                 variables,
             } => self
                 .session(muxer)?
@@ -136,6 +141,7 @@ impl Cli {
                     *show_picker,
                     *skip_cmds,
                     *skip_attach,
+                    *replace_current_session,
                 )
                 .wrap_err("Could not start session!".to_string()),
             Commands::Stop {

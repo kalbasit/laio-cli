@@ -74,6 +74,10 @@ impl<R: Runner> TmuxClient<R> {
         }
     }
 
+    pub(crate) fn has_socket(&self) -> bool {
+        self.socket.is_some()
+    }
+
     fn tmux_cmd(&self) -> Command {
         let mut cmd = Command::new("tmux");
         if let Some(ref s) = self.socket {
@@ -171,6 +175,15 @@ impl<R: Runner> TmuxClient<R> {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) fn kill_window(&self, target: &Target) -> Result<()> {
+        let target_str = target.to_string();
+        self.cmd_runner.run(&Type::Basic({
+            let mut cmd = self.tmux_cmd();
+            cmd.args(["kill-window", "-t", &target_str]);
+            cmd
+        }))
     }
 
     pub(crate) fn new_window(

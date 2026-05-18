@@ -481,7 +481,7 @@ fn mux_start_session() {
         ("LAIO_VARS", ""),
     ];
 
-    let result = tmux.start(&session, &env_vars, false, false);
+    let result = tmux.start(&session, &env_vars, false, false, false);
 
     if let Err(e) = &result {
         eprintln!("Test failure: {e:?}");
@@ -632,4 +632,222 @@ fn mux_picker_popup_command_includes_socket() {
         tmux.picker_popup_command(),
         "display-popup -w 50 -h 16 -E 'laio start --show-picker --tmux-socket \"/tmp/swm-test.sock\"'"
     );
+}
+
+#[test]
+fn mux_start_with_socket_inside_tmux_keeps_normal_flow_without_replace_flag() {
+    let temp_dir = std::env::temp_dir();
+    let temp_dir_lossy = temp_dir.to_string_lossy();
+    let temp_dir_str = temp_dir_lossy.trim_end_matches('/');
+    let yaml_str =
+        include_str!("../../common/config/test/valid.yaml").replace("/tmp", temp_dir_str);
+    let session = Session::from_yaml_str(&yaml_str).unwrap();
+
+    let cmd_unit = MockCmdUnitMock::new();
+    let cmd_string = MockCmdStringMock::new();
+    let mut cmd_bool = MockCmdBoolMock::new();
+
+    cmd_bool
+        .expect_run()
+        .times(1)
+        .withf(|cmd| {
+            matches!(cmd, Type::Basic(_) if cmd.to_string() == format!("tmux -S {TEST_SOCKET} has-session -t valid"))
+        })
+        .returning(|_| Ok(true));
+
+    let runner = RunnerMock {
+        cmd_unit,
+        cmd_string,
+        cmd_bool,
+    };
+
+    let tmux = Tmux::new_with_runner_and_socket(runner, Some(TEST_SOCKET.to_string()));
+    let env_vars: Vec<(&str, &str)> = vec![
+        ("LAIO_CONFIG", "./src/common/config/test/valid.yaml"),
+        ("LAIO_VARS", ""),
+    ];
+
+    let result = tmux.start(&session, &env_vars, true, true, false);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn mux_start_replace_current_session_requires_socket() {
+    let runner = RunnerMock {
+        cmd_unit: MockCmdUnitMock::new(),
+        cmd_string: MockCmdStringMock::new(),
+        cmd_bool: MockCmdBoolMock::new(),
+    };
+    let tmux = Tmux::new_with_runner(runner);
+    let temp_dir = std::env::temp_dir();
+    let temp_dir_lossy = temp_dir.to_string_lossy();
+    let temp_dir_str = temp_dir_lossy.trim_end_matches('/');
+    let yaml_str =
+        include_str!("../../common/config/test/valid.yaml").replace("/tmp", temp_dir_str);
+    let session = Session::from_yaml_str(&yaml_str).unwrap();
+
+    let result = tmux.start(&session, &[], true, true, true);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("--replace-current-session"));
+}
+
+// replace-current-session mode skips new-session and configures the existing session.
+#[test]
+fn mux_start_in_session_mode() {
+    let temp_dir = std::env::temp_dir();
+    let temp_dir_lossy = temp_dir.to_string_lossy();
+    let temp_dir_str = temp_dir_lossy.trim_end_matches('/');
+    let yaml_str =
+        include_str!("../../common/config/test/valid.yaml").replace("/tmp", temp_dir_str);
+    let session = Session::from_yaml_str(&yaml_str).unwrap();
+
+    let mut cmd_unit = MockCmdUnitMock::new();
+    let mut cmd_string = MockCmdStringMock::new();
+    let cmd_bool = MockCmdBoolMock::new();
+
+    // is_inside_session() — returns non-empty string → true
+    cmd_string
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("printenv") && cmd.to_string().contains("TMUX"))
+        .times(2)
+        .returning(|_| Ok("tmux-session-socket,12345,0".to_string()));
+
+    // configure_current_session: get actual session name
+    cmd_string
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("display-message")
+                && cmd.to_string().contains("#S")
+                && cmd.to_string().contains(TEST_SOCKET)
+        })
+        .times(1)
+        .returning(|_| Ok("github\u{2022}com/kalbasit/swm".to_string()));
+
+    // get_dimensions (inside session)
+    cmd_string
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("display-message")
+                && cmd.to_string().contains("window_width")
+                && cmd.to_string().contains(TEST_SOCKET)
+        })
+        .times(1)
+        .returning(|_| Ok("width: 160\nheight: 90".to_string()));
+
+    // get_base_idx
+    cmd_string
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("show-options")
+                && cmd.to_string().contains("base-index")
+                && cmd.to_string().contains(TEST_SOCKET)
+        })
+        .times(1)
+        .returning(|_| Ok("base-index 1".to_string()));
+
+    // get_current_window — save the original (laio-started) window before creating new ones
+    cmd_string
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("display-message")
+                && cmd.to_string().contains("#I")
+                && cmd.to_string().contains(TEST_SOCKET)
+        })
+        .times(1)
+        .returning(|_| Ok("@1".to_string()));
+
+    // new-window for ALL configured windows (force_new_windows=true in in-session mode)
+    cmd_string
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("new-window") && cmd.to_string().contains(TEST_SOCKET)
+        })
+        .times(2)
+        .returning(|_| Ok("@2".to_string()));
+
+    // kill-window for the original laio-started window
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("kill-window") && cmd.to_string().contains(TEST_SOCKET)
+        })
+        .times(1)
+        .returning(|_| Ok(()));
+
+    // Allow any pane-related display-message calls
+    cmd_string
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("display-message"))
+        .returning(|_| Ok("%1".to_string()));
+
+    // Allow any select-layout calls
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("select-layout"))
+        .returning(|_| Ok(()));
+
+    // Allow any set-pane-style / focus-pane calls (select-pane ...)
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("select-pane"))
+        .returning(|_| Ok(()));
+
+    // Allow zoom_pane calls (resize-pane -Z ...)
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("resize-pane"))
+        .returning(|_| Ok(()));
+
+    // Allow any split-window calls
+    cmd_string
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("split-window"))
+        .returning(|_| Ok("%2".to_string()));
+
+    // Allow any send-keys calls (commands)
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("send-keys"))
+        .returning(|_| Ok(()));
+
+    // Allow any setenv calls (env_vars flush)
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| cmd.to_string().contains("set-environment"))
+        .returning(|_| Ok(()));
+
+    cmd_unit
+        .expect_run()
+        .withf(|cmd| {
+            cmd.to_string().contains("bind-key")
+                && cmd.to_string().contains(TEST_SOCKET)
+                && cmd
+                    .to_string()
+                    .contains("laio start --show-picker --tmux-socket")
+        })
+        .times(1)
+        .returning(|_| Ok(()));
+
+    // new-session must NOT be called — no expectation registered for it.
+    // If it were called, mockall would panic with "unexpected call".
+
+    let runner = RunnerMock {
+        cmd_unit,
+        cmd_string,
+        cmd_bool,
+    };
+
+    let tmux = Tmux::new_with_runner_and_socket(runner, Some(TEST_SOCKET.to_string()));
+
+    let env_vars: Vec<(&str, &str)> = vec![
+        ("LAIO_CONFIG", "./src/common/config/test/valid.yaml"),
+        ("LAIO_VARS", ""),
+    ];
+
+    let result = tmux.start(&session, &env_vars, true, true, true);
+
+    if let Err(e) = &result {
+        eprintln!("Test failure: {e:?}");
+    }
+    assert!(result.is_ok(), "in-session mode start should succeed");
 }

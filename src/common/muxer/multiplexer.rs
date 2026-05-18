@@ -9,6 +9,7 @@ pub(crate) trait Multiplexer {
         env_vars: &[(&str, &str)],
         skip_attach: bool,
         skip_cmds: bool,
+        replace_current_session: bool,
     ) -> Result<()>;
     fn stop(
         &self,

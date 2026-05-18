@@ -156,6 +156,7 @@ impl SessionManager {
         show_picker: bool,
         skip_cmds: bool,
         skip_attach: bool,
+        replace_current_session: bool,
     ) -> Result<()> {
         let (config, effective_variables) = match name {
             Some(name) => self.resolve_config_and_variables(name, variables)?,
@@ -201,7 +202,13 @@ impl SessionManager {
             vec![(LAIO_CONFIG, config_path), (LAIO_VARS, &encoded_vars)];
 
         self.multiplexer
-            .start(&session, &env_vars, skip_attach, skip_cmds)
+            .start(
+                &session,
+                &env_vars,
+                skip_attach,
+                skip_cmds,
+                replace_current_session,
+            )
     }
 
     pub(crate) fn stop(

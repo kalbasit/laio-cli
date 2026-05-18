@@ -61,6 +61,7 @@ impl<R: Runner> Multiplexer for Zellij<R> {
         env_vars: &[(&str, &str)],
         skip_attach: bool,
         skip_cmds: bool,
+        _replace_current_session: bool,
     ) -> Result<()> {
         if self.switch(&session.name, skip_attach)? {
             return Ok(());

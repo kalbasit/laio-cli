@@ -68,7 +68,7 @@ fn mux_start_session() -> Result<()> {
 
     let env_vars: Vec<(&str, &str)> = vec![("LAIO_CONFIG", path_str), ("LAIO_VARS", "")];
 
-    zellij.start(&session, &env_vars, false, false)?;
+    zellij.start(&session, &env_vars, false, false, false)?;
 
     Ok(())
 }

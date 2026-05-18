@@ -155,6 +155,58 @@ impl<R: Runner> Tmux<R> {
             })
     }
 
+    /// Configure the current (already-existing) tmux session when laio is invoked
+    /// as a `pane_group_command` with `--tmux-socket`. Skips `new-session`; renames the
+    /// first window and creates additional windows via `new-window`.
+    fn configure_current_session(
+        &self,
+        session: &Session,
+        env_vars: &[(&str, &str)],
+        skip_cmds: bool,
+    ) -> Result<()> {
+        let actual_name = self.client.session_name()?;
+        log::debug!("in-session mode: configuring existing session '{actual_name}'");
+
+        // Remember the window laio is running in so we can kill it at the end.
+        // When laio is invoked as pane_group_command, it IS the initial process of
+        // that window; the window will close when laio exits anyway, but we kill it
+        // explicitly so focus lands on the right window after flush.
+        let original_window = self.client.get_current_window(&actual_name)?;
+
+        if !skip_cmds {
+            let mut commands = session.startup.clone();
+            if let Some(script) = &session.startup_script {
+                commands.push(script.to_cmd()?);
+            }
+            self.client.run_commands(&commands, &session.path)?;
+        }
+
+        for (key, value) in env_vars {
+            self.client.setenv(&tmux_target!(&actual_name), key, value);
+        }
+        self.client.flush_commands();
+
+        let dimensions = self.client.get_dimensions()?;
+        // Use force_new_windows=true: create ALL configured windows via new-window so
+        // they outlive the laio process.  The original window (where laio runs) is
+        // killed below after all commands have been flushed.
+        self.process_windows_for(&actual_name, session, &dimensions, skip_cmds, true)?;
+
+        self.client
+            .bind_key("prefix M-l", &self.picker_popup_command())?;
+
+        if let Some(delay_ms) = session.pane_cmd_delay {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        }
+
+        self.client.flush_commands();
+
+        self.client
+            .kill_window(&tmux_target!(&actual_name, &original_window))?;
+
+        Ok(())
+    }
+
     fn calculate_pane_dimensions(
         &self,
         layout_info: &LayoutInfo,
@@ -408,7 +460,18 @@ impl<R: Runner> Multiplexer for Tmux<R> {
         env_vars: &[(&str, &str)],
         skip_attach: bool,
         skip_cmds: bool,
+        replace_current_session: bool,
     ) -> Result<()> {
+        if replace_current_session {
+            if !self.client.has_socket() {
+                bail!("--replace-current-session requires --tmux-socket or LAIO_TMUX_SOCKET");
+            }
+            if !self.client.is_inside_session() {
+                bail!("--replace-current-session requires running inside tmux");
+            }
+            return self.configure_current_session(session, env_vars, skip_cmds);
+        }
+
         if self.switch(&session.name, skip_attach)? {
             return Ok(());
         }
